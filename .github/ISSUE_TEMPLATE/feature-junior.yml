@@ -1,0 +1,21 @@
+name: "⚡ Feature — tier:junior"
+description: "Feature simples que requer Zara (Dev Junior)"
+labels: ["feature", "tier:junior"]
+assignees: ["helostudio-zara-mendes"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Descrição
+      description: O que deve ser implementado
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Critérios de aceitação
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true

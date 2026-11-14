@@ -1,0 +1,41 @@
+name: Setup Labels
+
+on:
+  workflow_dispatch:
+
+jobs:
+  create-labels:
+    name: Create studio labels
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - name: Create labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          create_label() {
+            gh label create "$1" --repo "$REPO" --color "$2" --description "$3" --force
+          }
+
+          # Labels de tipo (Conventional Commits)
+          create_label "feature"     "7057ff" "Nova funcionalidade"
+          create_label "fix"         "d73a4a" "Correcção de bug"
+          create_label "bug"         "d73a4a" "Bug reportado"
+          create_label "chore"       "e4e669" "Manutenção, deps, config"
+          create_label "ci"          "0075ca" "CI/CD pipeline"
+          create_label "docs"        "0075ca" "Documentação"
+          create_label "refactor"    "bfd4f2" "Refactoring sem feature/fix"
+          create_label "test"        "bfd4f2" "Testes"
+          create_label "perf"        "e4e669" "Performance"
+          create_label "code-quality" "5319e7" "Lint, format, type check"
+
+          # Labels de tier (agentes)
+          create_label "tier:senior" "f97316" "Alex — feature complexa ou arquitectura"
+          create_label "tier:junior" "84cc16" "Zara — CRUD simples, small fixes"
+
+          # Labels de segurança e urgência
+          create_label "security"    "e11d48" "Segurança — Sam tria"
+          create_label "urgent"      "b60205" "Urgente — resolver hoje"

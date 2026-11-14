@@ -1,0 +1,6 @@
+# CODEOWNERS — Helo Studio
+# CTO is required reviewer on all PRs.
+# Note: enforcement requires GitHub Pro (branch protection on private repos).
+# Currently instructed via agent prompts — upgrade to enforce automatically.
+
+* @pealmasa

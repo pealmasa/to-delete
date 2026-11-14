@@ -1,0 +1,104 @@
+name: Deploy — Production
+
+# Trigger: manual pelo CTO (workflow_dispatch)
+# Nunca automático em produção — aprovação obrigatória
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versão a fazer deploy (ex: v1.2.0) — deixar vazio para usar SHA"
+        required: false
+        type: string
+      confirm:
+        description: "Confirmar deploy para PRODUÇÃO — escrever DEPLOY"
+        required: true
+        type: string
+
+# ⏸ PENDENTE — aguarda VPS Hetzner (Fase 1.6 do helo-05)
+#
+# Pré-requisitos antes de activar:
+#   1. VPS Hetzner provisionado com ambiente de produção
+#   2. Environment 'production' criado no GitHub com required reviewer (CTO)
+#   3. Secrets configurados: VPS_HOST, VPS_SSH_KEY, REGISTRY_TOKEN
+#   4. vars.CLIENT_DOMAIN configurado no GitHub Environment
+#
+# Para activar: remover o 'if: false' do job abaixo
+
+jobs:
+  validate:
+    name: Validar confirmação
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar palavra de confirmação
+        if: inputs.confirm != 'DEPLOY'
+        run: |
+          echo "Confirmação inválida — escrever DEPLOY para prosseguir"
+          exit 1
+
+  deploy-prod:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: validate
+    if: false  # ← remover quando VPS estiver provisionado
+    environment:
+      name: production
+      url: https://${{ vars.CLIENT_DOMAIN }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Determinar tag de versão
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            echo "tag=$INPUT_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "tag=$COMMIT_SHA" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Login no container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: Build e push Docker image (produção)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.tag }}
+
+      - name: Deploy para VPS via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd /opt/prod/${{ github.event.repository.name }}
+            docker compose pull
+            docker compose up -d --remove-orphans
+            docker image prune -f
+            echo "Deploy produção concluído: ${{ steps.version.outputs.tag }}"
+
+      - name: Verificar deploy (healthcheck)
+        run: |
+          sleep 20
+          curl -f https://${{ vars.CLIENT_DOMAIN }}/health || exit 1
+
+      - name: Criar git tag de versão
+        if: inputs.version != ''
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git tag -a "$INPUT_VERSION" -m "Release $INPUT_VERSION"
+          git push origin "$INPUT_VERSION"

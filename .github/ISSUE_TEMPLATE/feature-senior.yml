@@ -1,0 +1,29 @@
+name: "🚀 Feature — tier:senior"
+description: "Feature complexa que requer Alex (Dev Senior)"
+labels: ["feature", "tier:senior"]
+assignees: ["helostudio-alex-ferreira"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Descrição
+      description: O que deve ser implementado e porquê
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Critérios de aceitação
+      description: Como saberemos que está concluído?
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Contexto técnico
+      description: Ficheiros relevantes, decisões de arquitectura, dependências
+    validations:
+      required: false

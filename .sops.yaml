@@ -1,0 +1,11 @@
+# .sops.yaml — Configuração SOPS para este projecto
+#
+# Substituir a chave pública abaixo pela tua chave age:
+#   age-keygen -o ~/.config/sops/age/keys.txt
+#   → copia a linha "Public key: age1xxx..."
+#
+# Ver studio-best-practices/security.md secção 6 para instruções completas.
+
+creation_rules:
+  - path_regex: \.env.*
+    age: age1c0mg5lccu3k78mn8dsg0tpyk22hdj7qyvhvz4nfzn09qar8rn9nqe0th66

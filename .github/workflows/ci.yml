@@ -1,0 +1,84 @@
+name: CI
+
+# MINIMAL MODE — push to develop only, single job
+# Full config (5 jobs, PR trigger) preserved in ci.full.yml
+# To restore full config: cp .github/workflows/ci.full.yml .github/workflows/ci.yml
+
+on:
+  push:
+    branches: [develop]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql://test:test@localhost:5432/test
+      APP_ENV: test
+      SECRET_KEY: test-secret-key-not-used-in-production
+      LANGFUSE_SECRET_KEY: test-secret
+      LANGFUSE_PUBLIC_KEY: test-public
+      LANGFUSE_BASE_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Format check (ruff)
+        run: uv run ruff format --check .
+
+      - name: Type check (mypy)
+        run: uv run mypy .
+
+      - name: Tests & Coverage
+        run: uv run pytest --cov=app --cov-report=term-missing --cov-fail-under=80
+
+      - name: Security — Semgrep SAST
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/python
+            p/owasp-top-ten
+            p/secrets
+            p/jwt
+            p/sql-injection
+
+      - name: Security — pip-audit
+        run: |
+          uv export --frozen --no-hashes --all-extras --no-emit-project > /tmp/requirements.txt
+          uvx pip-audit --strict -r /tmp/requirements.txt
+          # TODO: add --ignore-vuln <CVE-ID> for project-specific suppressions

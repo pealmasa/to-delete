@@ -1,0 +1,178 @@
+name: Security Audit
+
+# Auditoria semanal — segunda-feira às 08h00 UTC
+# Verifica dependências vulneráveis, code scanning alerts, e PRs de segurança
+# Complementa credentials-audit.yml (que verifica expiração de secrets)
+on:
+  schedule:
+    - cron: "0 8 * * 1"
+  workflow_dispatch: # Permite trigger manual
+
+permissions:
+  contents: read
+  issues: write
+  security-events: read
+
+jobs:
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]" pip-audit 2>/dev/null || echo "No Python deps to install"
+
+      - name: Audit dependencies
+        id: deps
+        continue-on-error: true
+        run: |
+          if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
+            pip freeze --exclude-editable > /tmp/requirements.txt
+            RESULT=$(pip-audit --strict -r /tmp/requirements.txt 2>&1) || true
+            VULN_COUNT=$(echo "$RESULT" | grep -c "^Name" || echo "0")
+            if echo "$RESULT" | grep -qi "found [1-9]"; then
+              echo "status=vulnerable" >> $GITHUB_OUTPUT
+              echo "details<<EOF" >> $GITHUB_OUTPUT
+              echo "$RESULT" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+            else
+              echo "status=clean" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "status=skipped" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check Dependabot alerts
+        id: dependabot
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ALERTS=$(gh api repos/${{ github.repository }}/dependabot/alerts \
+            --jq '[.[] | select(.state=="open")] | length' 2>/dev/null || echo "0")
+          echo "count=$ALERTS" >> $GITHUB_OUTPUT
+          if [ "$ALERTS" -gt "0" ]; then
+            DETAILS=$(gh api repos/${{ github.repository }}/dependabot/alerts \
+              --jq '[.[] | select(.state=="open")] | .[:10] | .[] | "- **\(.security_advisory.severity)**: \(.security_advisory.summary) (\(.dependency.package.name))"' 2>/dev/null || echo "")
+            echo "details<<EOF" >> $GITHUB_OUTPUT
+            echo "$DETAILS" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check code scanning alerts
+        id: scanning
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ALERTS=$(gh api repos/${{ github.repository }}/code-scanning/alerts \
+            --jq '[.[] | select(.state=="open")] | length' 2>/dev/null || echo "0")
+          echo "count=$ALERTS" >> $GITHUB_OUTPUT
+          if [ "$ALERTS" -gt "0" ]; then
+            DETAILS=$(gh api repos/${{ github.repository }}/code-scanning/alerts \
+              --jq '[.[] | select(.state=="open")] | .[:10] | .[] | "- **\(.rule.severity)**: \(.rule.description) (\(.most_recent_instance.location.path))"' 2>/dev/null || echo "")
+            echo "details<<EOF" >> $GITHUB_OUTPUT
+            echo "$DETAILS" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check secret scanning alerts
+        id: secrets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ALERTS=$(gh api repos/${{ github.repository }}/secret-scanning/alerts \
+            --jq '[.[] | select(.state=="open")] | length' 2>/dev/null || echo "0")
+          echo "count=$ALERTS" >> $GITHUB_OUTPUT
+
+      - name: Determine overall status
+        id: status
+        run: |
+          ISSUES=""
+          LEVEL="ok"
+
+          if [ "${{ steps.deps.outputs.status }}" = "vulnerable" ]; then
+            ISSUES="${ISSUES}deps,"
+            LEVEL="warning"
+          fi
+          if [ "${{ steps.dependabot.outputs.count }}" -gt "0" ] 2>/dev/null; then
+            ISSUES="${ISSUES}dependabot,"
+            LEVEL="warning"
+          fi
+          if [ "${{ steps.scanning.outputs.count }}" -gt "0" ] 2>/dev/null; then
+            ISSUES="${ISSUES}scanning,"
+            LEVEL="critical"
+          fi
+          if [ "${{ steps.secrets.outputs.count }}" -gt "0" ] 2>/dev/null; then
+            ISSUES="${ISSUES}secrets,"
+            LEVEL="critical"
+          fi
+
+          echo "level=$LEVEL" >> $GITHUB_OUTPUT
+          echo "issues=$ISSUES" >> $GITHUB_OUTPUT
+
+      - name: Create audit issue
+        if: steps.status.outputs.level != 'ok'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SEVERITY="⚠️"
+          if [ "${{ steps.status.outputs.level }}" = "critical" ]; then
+            SEVERITY="🚨"
+          fi
+
+          BODY="## $SEVERITY Security Audit — $(date +%Y-%m-%d)
+          "
+
+          if [ "${{ steps.secrets.outputs.count }}" -gt "0" ] 2>/dev/null; then
+            BODY="${BODY}
+          ### 🚨 Secret Scanning — ${{ steps.secrets.outputs.count }} alert(s)
+          Secrets expostos detectados. **Acção imediata necessária.**
+          Ver: ${{ github.server_url }}/${{ github.repository }}/security/secret-scanning
+          "
+          fi
+
+          if [ "${{ steps.scanning.outputs.count }}" -gt "0" ] 2>/dev/null; then
+            BODY="${BODY}
+          ### 🔍 Code Scanning — ${{ steps.scanning.outputs.count }} alert(s)
+          ${{ steps.scanning.outputs.details }}
+          Ver: ${{ github.server_url }}/${{ github.repository }}/security/code-scanning
+          "
+          fi
+
+          if [ "${{ steps.dependabot.outputs.count }}" -gt "0" ] 2>/dev/null; then
+            BODY="${BODY}
+          ### 📦 Dependabot — ${{ steps.dependabot.outputs.count }} alert(s)
+          ${{ steps.dependabot.outputs.details }}
+          Ver: ${{ github.server_url }}/${{ github.repository }}/security/dependabot
+          "
+          fi
+
+          if [ "${{ steps.deps.outputs.status }}" = "vulnerable" ]; then
+            BODY="${BODY}
+          ### 🐍 pip-audit — Vulnerabilidades detectadas
+          \`\`\`
+          ${{ steps.deps.outputs.details }}
+          \`\`\`
+          "
+          fi
+
+          BODY="${BODY}
+          ---
+          *Gerado automaticamente por \`security-audit.yml\`*
+          *Credentials audit (expiração de secrets) corre separadamente em \`credentials-audit.yml\`*"
+
+          gh issue create \
+            --repo "${{ github.repository }}" \
+            --title "$SEVERITY [SECURITY] Audit semanal — $(date +%Y-%m-%d)" \
+            --label "security" \
+            --body "$BODY"
+
+      - name: Log — all clear
+        if: steps.status.outputs.level == 'ok'
+        run: echo "✅ Security audit concluído — nenhum problema detectado."

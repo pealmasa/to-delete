@@ -1,0 +1,46 @@
+version: 2
+updates:
+  # Python dependencies
+  - package-ecosystem: pip
+    directory: "/"
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    open-pull-requests-limit: 5
+    assignees:
+      - helostudio-sam-oliveira
+    labels:
+      - "chore"
+      - "security"
+
+  # Node dependencies (se aplicável — remover se projecto for Python only)
+  - package-ecosystem: npm
+    directory: "/"
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    open-pull-requests-limit: 5
+    assignees:
+      - helostudio-sam-oliveira
+    labels:
+      - "chore"
+      - "security"
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    open-pull-requests-limit: 5
+    assignees:
+      - helostudio-dani-carvalho
+    labels:
+      - "chore"
+      - "ci"
